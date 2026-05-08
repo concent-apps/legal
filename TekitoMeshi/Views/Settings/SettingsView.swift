@@ -303,7 +303,7 @@ struct SettingsView: View {
 
     private let privacyURL = URL(string: "https://concent-apps.github.io/legal/totonogohan/privacy.html")!
     private let termsURL   = URL(string: "https://concent-apps.github.io/legal/totonogohan/terms.html")!
-    private let contactURL = URL(string: "mailto:mika0103c@gmail.com")!
+    private let contactURL = URL(string: "mailto:info.concent.jp@gmail.com")!
 
     private var appInfoSection: some View {
         settingsSection(header: "アプリについて") {
