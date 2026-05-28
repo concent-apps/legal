@@ -1,10 +1,18 @@
 import SwiftUI
 import UserNotifications
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
-    @StateObject private var vm           = SettingsViewModel()
+    @StateObject private var vm              = SettingsViewModel()
     @ObservedObject private var subscription = SubscriptionManager.shared
-    @State private var showPaywall = false
+    @ObservedObject private var recipeStore  = ImportedRecipeStore.shared
+    @EnvironmentObject private var appState: AppState
+    @State private var showPaywall       = false
+    @State private var showFileExporter  = false
+    @State private var backupDocument: RecipeBackupDocument?
+    @State private var showFileImporter  = false
+    @State private var importResultMsg   = ""
+    @State private var showImportAlert   = false
 
     var body: some View {
         ZStack {
@@ -25,6 +33,9 @@ struct SettingsView: View {
                         // ── 献立の目標 ──────────────────────────────
                         goalSection
 
+                        // ── データ管理 ──────────────────────────────
+                        dataSection
+
                         // ── アプリ情報 ──────────────────────────────
                         appInfoSection
                     }
@@ -35,6 +46,20 @@ struct SettingsView: View {
         }
         .onAppear { vm.load() }
         .sheet(isPresented: $showPaywall) { PremiumPaywallView() }
+        .fileExporter(
+            isPresented: $showFileExporter,
+            document: backupDocument,
+            contentType: .json,
+            defaultFilename: backupFileName
+        ) { _ in }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.json]) { result in
+            restoreBackup(result: result)
+        }
+        .alert("復元結果", isPresented: $showImportAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importResultMsg)
+        }
     }
 
     // MARK: - ヘッダー
@@ -108,7 +133,7 @@ struct SettingsView: View {
                             Text("プレミアムにアップグレード")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(Color.appTextPrimary)
-                            Text("月額480円")
+                            Text("月額480円 / 年額3,800円")
                                 .font(.system(size: 13))
                                 .foregroundColor(Color.appTextTertiary)
                         }
@@ -125,12 +150,14 @@ struct SettingsView: View {
 
                 // プレミアム機能一覧
                 let features: [(String, Color, String, String)] = [
-                    ("sparkles",            Color.appFish,      "AI献立生成",        "冷蔵庫の食材から最適な献立を提案"),
-                    ("calendar.badge.plus", Color.appGreen,     "7日間献立",         "1週間分まとめて献立を作成"),
-                    ("book.closed",         Color.appPrimary,   "マイレシピ無制限",   "お気に入りレシピを何件でも保存"),
-                    ("chart.pie",           Color.appGreenDark, "栄養分析（PFC）",   "PFCバランスを毎日チェック"),
-                    ("leaf",                Color.appGreenDark, "ダイエットモード",   "低カロリー献立を優先提案"),
-                    ("bolt",                Color.appFish,      "筋トレモード",       "高たんぱく献立を優先提案"),
+                    ("sparkles",            Color.appFish,      "AI献立生成",              "冷蔵庫の食材から最適な献立を提案"),
+                    ("calendar.badge.plus", Color.appGreen,     "7日間献立",               "1週間分まとめて献立を作成"),
+                    ("book.closed",         Color.appPrimary,   "マイレシピ無制限",         "インポートしたレシピが献立に組み込まれる"),
+                    ("chart.pie",           Color.appGreenDark, "栄養分析（PFC）",         "PFCバランスを毎日チェック"),
+                    ("yensign.circle",      Color.appFish,      "年間食費シミュレーション", "レシピから1年分の食費を自動計算"),
+                    ("leaf",                Color.appGreenDark, "ダイエットモード",         "低カロリー献立を優先提案"),
+                    ("bolt",                Color.appFish,      "筋トレモード",             "高たんぱく献立を優先提案"),
+                    ("hand.thumbsup",       Color.appGreenDark, "広告なし",                 "買い物リストの広告が非表示に"),
                 ]
                 VStack(spacing: 0) {
                     ForEach(Array(features.enumerated()), id: \.offset) { idx, f in
@@ -299,11 +326,132 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - データ管理
+
+    private var dataSection: some View {
+        settingsSection(header: "データ管理") {
+            VStack(spacing: 0) {
+                // 書き出し
+                Button {
+                    if subscription.isPremium {
+                        backupDocument = RecipeBackupDocument(recipes: recipeStore.recipes)
+                        showFileExporter = true
+                    } else {
+                        showPaywall = true
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color.appPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(Color.appPrimary.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text("マイレシピをバックアップ")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(Color.appTextPrimary)
+                                if !subscription.isPremium {
+                                    Text("PRO")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Color.appPrimary)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            Text("JSONファイルをFilesアプリに保存")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color.appTextTertiary)
+                        }
+                        Spacer()
+                        Text("\(recipeStore.recipes.count)件")
+                            .font(.system(size: 13))
+                            .foregroundColor(Color.appTextTertiary)
+                    }
+                    .padding(14)
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.horizontal, 14)
+
+                // 復元
+                Button {
+                    if subscription.isPremium {
+                        showFileImporter = true
+                    } else {
+                        showPaywall = true
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color.appGreenDark)
+                            .frame(width: 32, height: 32)
+                            .background(Color.appGreenDark.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text("バックアップから復元")
+                                    .font(.system(size: 15))
+                                    .foregroundColor(Color.appTextPrimary)
+                                if !subscription.isPremium {
+                                    Text("PRO")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Color.appPrimary)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            Text("JSONファイルを選択してレシピを追加")
+                                .font(.system(size: 12))
+                                .foregroundColor(Color.appTextTertiary)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var backupFileName: String {
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd"
+        return "totonogohan_backup_\(f.string(from: Date())).json"
+    }
+
+    private func restoreBackup(result: Result<URL, Error>) {
+        guard case .success(let url) = result else {
+            importResultMsg = "ファイルを開けませんでした"
+            showImportAlert = true
+            return
+        }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url),
+              let (decoded, _) = RecipeBackupDocument.restore(from: data) else {
+            importResultMsg = "JSONの読み込みに失敗しました"
+            showImportAlert = true
+            return
+        }
+        let existingIDs = Set(recipeStore.recipes.map { $0.id })
+        let newRecipes = decoded.filter { !existingIDs.contains($0.id) }
+        newRecipes.forEach { recipeStore.add($0) }
+        importResultMsg = newRecipes.isEmpty
+            ? "新しいレシピはありませんでした"
+            : "\(newRecipes.count)件のレシピを復元しました（画像も含む）"
+        showImportAlert = true
+    }
+
     // MARK: - アプリ情報
 
     private let privacyURL = URL(string: "https://concent-apps.github.io/legal/totonogohan/privacy.html")!
     private let termsURL   = URL(string: "https://concent-apps.github.io/legal/totonogohan/terms.html")!
-    private let contactURL = URL(string: "mailto:info.concent.jp@gmail.com")!
+    private let tokushohoURL = URL(string: "https://concent-apps.github.io/legal/totonogohan/tokushoho.html")!
+    private let contactURL = URL(string: "mailto:info.concent.jp@gmail.com?subject=%E3%81%A8%E3%81%A8%E3%81%AE%E3%81%86%E3%81%94%E9%A3%AF%20%E3%81%8A%E5%95%8F%E3%81%84%E5%90%88%E3%82%8F%E3%81%9B")!
 
     private var appInfoSection: some View {
         settingsSection(header: "アプリについて") {
@@ -364,6 +512,21 @@ struct SettingsView: View {
 
                 Divider().padding(.horizontal, 14)
 
+                Link(destination: tokushohoURL) {
+                    HStack {
+                        Text("特定商取引法に基づく表記")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color.appTextPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color.appTextTertiary)
+                    }
+                    .padding(14)
+                }
+
+                Divider().padding(.horizontal, 14)
+
                 Link(destination: contactURL) {
                     HStack {
                         Text("お問い合わせ")
@@ -376,6 +539,17 @@ struct SettingsView: View {
                     }
                     .padding(14)
                 }
+
+                #if DEBUG
+                Divider().padding(.horizontal, 14)
+                Button("オンボーディングを再表示 (Debug)") {
+                    UserDefaults.standard.removeObject(forKey: "onboardingCompleted")
+                    appState.resetOnboarding = true
+                }
+                .font(.system(size: 13))
+                .foregroundColor(Color.appPrimary)
+                .padding(14)
+                #endif
             }
         }
     }
