@@ -431,9 +431,10 @@ struct RecipeGridCard: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 0) {
-                // サムネイル
-                thumbnailView
-                    .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 120)
+                // サムネイル: Color.clearで列幅を確保しoverlayで画像を重ねる
+                Color.clear
+                    .frame(height: 120)
+                    .overlay(thumbnailContent.clipped())
                     .clipped()
 
                 // テキスト部
@@ -463,7 +464,6 @@ struct RecipeGridCard: View {
                 }
                 .padding(10)
             }
-            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .background(Color.white)
@@ -503,27 +503,22 @@ struct RecipeGridCard: View {
     }
 
     @ViewBuilder
-    private var thumbnailView: some View {
+    private var thumbnailContent: some View {
         if let localImg = UIImage(named: "dish_\(recipe.name)") {
             Image(uiImage: localImg).resizable().scaledToFill()
-                .frame(maxWidth: .infinity)
         } else if let urlStr = recipe.thumbnailURL,
                   let path = resolveLocalImagePath(urlStr),
                   let uiImage = UIImage(contentsOfFile: path) {
             Image(uiImage: uiImage).resizable().scaledToFill()
-                .frame(maxWidth: .infinity)
         } else if let urlStr = recipe.thumbnailURL,
                   let url = URL(string: urlStr),
                   url.scheme == "https" || url.scheme == "http" {
             AsyncImage(url: url) { phase in
                 switch phase {
-                case .success(let img):
-                    img.resizable().scaledToFill()
-                        .frame(maxWidth: .infinity)
+                case .success(let img): img.resizable().scaledToFill()
                 default: placeholderView
                 }
             }
-            .frame(maxWidth: .infinity)
         } else {
             placeholderView
         }
