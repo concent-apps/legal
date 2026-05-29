@@ -463,6 +463,7 @@ struct RecipeGridCard: View {
                 }
                 .padding(10)
             }
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .background(Color.white)

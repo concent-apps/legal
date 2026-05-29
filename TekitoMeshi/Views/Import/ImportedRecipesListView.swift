@@ -344,6 +344,7 @@ struct ImportedRecipeDetailView: View {
 
                     // ── ヒーロー画像 ───────────────────────────
                     heroSection
+                        .frame(maxWidth: .infinity)
 
                     VStack(alignment: .leading, spacing: 16) {
 
@@ -509,11 +510,11 @@ struct ImportedRecipeDetailView: View {
                         Text("写真で追加").font(.system(size: 13, weight: .semibold))
                     }
                     .foregroundColor(Color.appPrimary)
-                    .frame(maxWidth: .infinity)
                     .frame(height: 38)
                     .background(Color.appPrimary.opacity(0.1))
                     .cornerRadius(10)
                 }
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(16)
@@ -725,24 +726,24 @@ struct ImportedRecipeDetailView: View {
 
     private var stepsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 0) {
                 sectionHeader(icon: "text.alignleft", title: "作り方",
                               badge: localSteps.isEmpty ? nil : "\(localSteps.count)ステップ")
                 PhotosPicker(selection: $stepsPhotosPickerItem, matching: .images) {
                     Image(systemName: "photo.badge.plus")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color.appTextSecondary)
-                        .padding(.trailing, 4)
                 }
+                .frame(width: 32, height: 32)
                 Button {
                     reparseText = ""; showReparseSheet = true
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Color.appTextSecondary)
-                        .padding(.trailing, 14)
                 }
                 .buttonStyle(.plain)
+                .frame(width: 38, height: 32)
             }
             .background(Color(hex: "F7F3EF"))
 
