@@ -340,11 +340,10 @@ struct ImportedRecipeDetailView: View {
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(spacing: 0) {
 
                     // ── ヒーロー画像 ───────────────────────────
                     heroSection
-                        .frame(maxWidth: .infinity)
 
                     VStack(alignment: .leading, spacing: 16) {
 
@@ -422,6 +421,7 @@ struct ImportedRecipeDetailView: View {
                     .padding(.top, 20)
                     .padding(.bottom, 40)
                 }
+                .frame(maxWidth: .infinity)
             }
             .background(Color.appBackground.ignoresSafeArea())
             .task { if thumbURL == nil { refreshThumbnail() } }
