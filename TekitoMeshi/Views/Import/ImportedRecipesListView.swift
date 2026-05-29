@@ -304,11 +304,19 @@ struct ImportedRecipeDetailView: View {
     @FocusState private var nameFieldFocused: Bool
     @State private var editingNote: String
     @State private var tags: [String]
-    @State private var newTagText    = ""
-    @State private var showTagInput  = false
+    @State private var newTagText      = ""
+    @State private var showTagInput    = false
+    @State private var showReparseSheet = false
+    @State private var reparseText     = ""
+    @State private var reparseResult:  String? = nil
 
     private let tagSuggestions = ["時短", "魚", "肉", "野菜", "豆腐", "揚げ物",
                                    "作り置き", "ヘルシー", "子ども向け", "がっつり", "あっさり"]
+
+    @State private var localSteps:         [String]
+    @State private var localIngredients:   [String]
+    @State private var localStepsImageURL: String?
+    @State private var stepsPhotosPickerItem: PhotosPickerItem?
 
     init(recipe: ImportedRecipe) {
         self.recipe  = recipe
@@ -316,12 +324,15 @@ struct ImportedRecipeDetailView: View {
         _protein     = State(initialValue: recipe.protein)
         _fat         = State(initialValue: recipe.fat)
         _carb        = State(initialValue: recipe.carb)
-        _editingName      = State(initialValue: recipe.name)
-        _editingCategory  = State(initialValue: recipe.category)
-        _editingSourceURL = State(initialValue: recipe.sourceURL)
-        _editingNote      = State(initialValue: recipe.note)
-        _tags        = State(initialValue: recipe.tags)
-        _thumbURL    = State(initialValue: recipe.thumbnailURL)
+        _editingName          = State(initialValue: recipe.name)
+        _editingCategory      = State(initialValue: recipe.category)
+        _editingSourceURL     = State(initialValue: recipe.sourceURL)
+        _editingNote          = State(initialValue: recipe.note)
+        _tags                 = State(initialValue: recipe.tags)
+        _thumbURL             = State(initialValue: recipe.thumbnailURL)
+        _localSteps           = State(initialValue: recipe.steps)
+        _localIngredients     = State(initialValue: recipe.ingredients)
+        _localStepsImageURL   = State(initialValue: recipe.stepsImageURL)
     }
 
     private var calorie: Double { protein * 4 + fat * 9 + carb * 4 }
@@ -362,7 +373,7 @@ struct ImportedRecipeDetailView: View {
                                 infoChip(icon: "clock",     text: "\(recipe.cookTime)分")
                                 infoChip(icon: "person.2",  text: "\(recipe.servings)人分")
                                 SwiftUI.Menu {
-                                    ForEach([Recipe.Category.main, .side, .soup, .staple], id: \.self) { cat in
+                                    ForEach([Recipe.Category.main, .side, .soup, .staple, .sweets], id: \.self) { cat in
                                         Button {
                                             editingCategory = cat
                                             saveToStore { $0.category = cat }
@@ -380,13 +391,15 @@ struct ImportedRecipeDetailView: View {
                         }
 
                         // 材料
-                        if !recipe.ingredients.isEmpty {
+                        if !localIngredients.isEmpty {
                             ingredientsSection
                         }
 
                         // 作り方
-                        if !recipe.steps.isEmpty {
+                        if !localSteps.isEmpty || localStepsImageURL != nil {
                             stepsSection
+                        } else {
+                            reparseEmptyCard
                         }
 
                         // メモ
@@ -432,11 +445,173 @@ struct ImportedRecipeDetailView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             }
+            .sheet(isPresented: $showReparseSheet) { reparseSheet }
+            .task(id: stepsPhotosPickerItem) {
+                guard let item = stepsPhotosPickerItem else { return }
+                let imageData: Data?
+                if let raw = try? await item.loadTransferable(type: Data.self) {
+                    imageData = raw
+                } else {
+                    imageData = nil
+                }
+                guard let data = imageData,
+                      let saved = saveImageToDocuments(data: data, id: "\(recipe.id.uuidString)_steps") else {
+                    stepsPhotosPickerItem = nil
+                    return
+                }
+                localStepsImageURL = saved
+                saveToStore { $0.stepsImageURL = saved }
+                stepsPhotosPickerItem = nil
+            }
             .onDisappear {
                 saveNameIfChanged()
                 saveSourceURL()
                 saveNote()
             }
+        }
+    }
+
+    // MARK: - 作り方再取り込み
+
+    private var reparseEmptyCard: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color(hex: "C0994A"))
+                Text("作り方を取得できませんでした")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(Color(hex: "C0994A"))
+            }
+            Text("テキストを貼り付けるか、写真で作り方を追加できます")
+                .font(.system(size: 12))
+                .foregroundColor(Color.appTextSecondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 8) {
+                Button {
+                    reparseText = ""; showReparseSheet = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.pencil").font(.system(size: 13))
+                        Text("テキストで追加").font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(Color.appPrimary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .background(Color.appPrimary.opacity(0.1))
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+
+                PhotosPicker(selection: $stepsPhotosPickerItem, matching: .images) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo").font(.system(size: 13))
+                        Text("写真で追加").font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(Color.appPrimary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 38)
+                    .background(Color.appPrimary.opacity(0.1))
+                    .cornerRadius(10)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(Color.white)
+        .cornerRadius(14)
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: "C0994A").opacity(0.3)))
+    }
+
+    private var reparseSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("レシピのテキストを貼り付けてください。\n作り方・材料（未登録の場合）を自動で取り込みます。")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color.appTextSecondary)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+
+                TextEditor(text: $reparseText)
+                    .font(.system(size: 14))
+                    .padding(12)
+                    .background(Color.appBackground)
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator))
+                    .padding(.horizontal, 20)
+                    .frame(minHeight: 220)
+
+                if let msg = reparseResult {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(Color(hex: "3D6B4A"))
+                        Text(msg)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color(hex: "3D6B4A"))
+                    }
+                    .padding(.horizontal, 20)
+                }
+
+                Button {
+                    applyReparse()
+                } label: {
+                    Text("取り込む")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(reparseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? Color.appPrimary.opacity(0.4) : Color.appPrimary)
+                        .cornerRadius(14)
+                }
+                .disabled(reparseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+
+                Spacer()
+            }
+            .background(Color.appBackground.ignoresSafeArea())
+            .navigationTitle("作り方を再取り込み")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") {
+                        showReparseSheet = false
+                        reparseResult = nil
+                    }
+                    .foregroundColor(Color.appTextSecondary)
+                }
+            }
+        }
+    }
+
+    private func applyReparse() {
+        let parsed = RecipeImportService.shared.importFromCaption(reparseText)
+        guard !parsed.steps.isEmpty else {
+            reparseResult = "作り方が見つかりませんでした"
+            return
+        }
+        // ストアに保存
+        saveToStore { r in
+            r.steps = parsed.steps
+            if r.ingredients.isEmpty && !parsed.ingredients.isEmpty {
+                r.ingredients = parsed.ingredients
+            }
+        }
+        // 画面も即時更新
+        localSteps = parsed.steps
+        if localIngredients.isEmpty && !parsed.ingredients.isEmpty {
+            localIngredients = parsed.ingredients
+        }
+
+        var msg = "作り方 \(parsed.steps.count)ステップを取り込みました"
+        if !parsed.ingredients.isEmpty && localIngredients == parsed.ingredients {
+            msg += "・材料 \(parsed.ingredients.count)品"
+        }
+        reparseResult = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            showReparseSheet = false
+            reparseResult = nil
         }
     }
 
@@ -495,7 +670,7 @@ struct ImportedRecipeDetailView: View {
             sectionHeader(icon: "list.bullet", title: "材料", badge: "\(recipe.servings)人分")
 
             VStack(spacing: 0) {
-                ForEach(Array(recipe.ingredients.enumerated()), id: \.offset) { i, ing in
+                ForEach(Array(localIngredients.enumerated()), id: \.offset) { i, ing in
                     let (ingName, amount) = splitIngredient(ing)
                     HStack(spacing: 12) {
                         Text(ingName)
@@ -512,7 +687,7 @@ struct ImportedRecipeDetailView: View {
                     .padding(.vertical, 10)
                     .background(i.isMultiple(of: 2) ? Color.white : Color(hex: "FAFAF8"))
 
-                    if i < recipe.ingredients.count - 1 {
+                    if i < localIngredients.count - 1 {
                         Divider().padding(.leading, 14)
                     }
                 }
@@ -550,44 +725,84 @@ struct ImportedRecipeDetailView: View {
 
     private var stepsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(icon: "text.alignleft", title: "作り方", badge: "\(recipe.steps.count)ステップ")
+            HStack {
+                sectionHeader(icon: "text.alignleft", title: "作り方",
+                              badge: localSteps.isEmpty ? nil : "\(localSteps.count)ステップ")
+                PhotosPicker(selection: $stepsPhotosPickerItem, matching: .images) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary)
+                        .padding(.trailing, 4)
+                }
+                Button {
+                    reparseText = ""; showReparseSheet = true
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.appTextSecondary)
+                        .padding(.trailing, 14)
+                }
+                .buttonStyle(.plain)
+            }
+            .background(Color(hex: "F7F3EF"))
 
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(recipe.steps.enumerated()), id: \.offset) { i, step in
-                    HStack(alignment: .top, spacing: 14) {
-                        // ステップ番号
-                        ZStack {
-                            Circle()
-                                .fill(Color.appPrimary)
-                                .frame(width: 26, height: 26)
-                            Text("\(i + 1)")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                        .padding(.top, 1)
+            if !localSteps.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(localSteps.enumerated()), id: \.offset) { i, step in
+                        HStack(alignment: .top, spacing: 14) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.appPrimary)
+                                    .frame(width: 26, height: 26)
+                                Text("\(i + 1)")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.top, 1)
 
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(step)
-                                .font(.system(size: 14))
-                                .foregroundColor(Color.appTextPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.bottom, i < recipe.steps.count - 1 ? 16 : 0)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(step)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(Color.appTextPrimary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.bottom, i < localSteps.count - 1 ? 16 : 0)
 
-                            if i < recipe.steps.count - 1 {
-                                Divider()
-                                    .padding(.bottom, 16)
+                                if i < localSteps.count - 1 {
+                                    Divider()
+                                        .padding(.bottom, 16)
+                                }
                             }
                         }
+                        .padding(.horizontal, 14)
+                        .padding(.top, i == 0 ? 14 : 0)
+                        .padding(.bottom, i == localSteps.count - 1 ? 14 : 0)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, i == 0 ? 14 : 0)
-                    .padding(.bottom, i == recipe.steps.count - 1 ? 14 : 0)
+                }
+            }
+
+            if let imgURL = localStepsImageURL {
+                ZStack(alignment: .topTrailing) {
+                    RecipeThumbnailView(urlStr: imgURL, height: 280) {
+                        Color(hex: "F5EDE2").frame(maxWidth: .infinity).frame(height: 280)
+                    }
+                    Button {
+                        localStepsImageURL = nil
+                        saveToStore { $0.stepsImageURL = nil }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 26))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.4), radius: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(10)
                 }
             }
         }
         .background(Color.white)
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.appSeparator))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     // MARK: - セクションヘッダー
